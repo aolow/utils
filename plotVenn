@@ -1,0 +1,28 @@
+
+plotVenn <- function(l){
+  pal <- wesanderson::wes_palette("Darjeeling1",length(l) ) %>% as.character
+  alpha_pal <- alpha(pal, 0.7)
+  
+  plot <- VennDiagram::venn.diagram(
+    x = l,
+    main = "",
+    #sub = "",
+    category.names =  names(l),
+    filename = NULL,
+    cex = 1.2,
+    col=pal,
+    fill = alpha_pal,
+    fontfamily = "sans",
+    cat.cex = 1,
+    cat.default.pos = "outer",
+    cat.fontfamily = "sans"
+  )
+  dev.off()
+  
+  
+  grid::grid.newpage()
+  grid::pushViewport(grid::viewport(width=unit(0.8, "npc"), 
+                                    height = unit(0.8, "npc")))
+  
+  grid::grid.draw(plot)
+}
