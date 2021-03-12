@@ -1,7 +1,7 @@
 
 plotVenn <- function(l){
   pal <- wesanderson::wes_palette("Darjeeling1",length(l) ) %>% as.character
-  alpha_pal <- alpha(pal, 0.7)
+  alpha_pal <- scales::alpha(pal, 0.7)
   
   plot <- VennDiagram::venn.diagram(
     x = l,
