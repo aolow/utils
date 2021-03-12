@@ -246,4 +246,103 @@ pltCoexprByTissue_TN <- function(.data = tcga2,
 
 
 
+pltBoxTNByTissue <- function(.data = tcga2,
+                              gene_q_df = gene_q_df,
+                              main_gene_sel = "EPCAM",
+                              gene_sel = "MET",
+                              expr_thr_TPM = 10,
+                              tissue_col_name = "primary_site_std",
+                              sample_id_col_name = "sample",
+                              gene_id_col_name ="GeneID"){
+  
+  
+  tcga3 <- .data %>% 
+    dplyr::right_join(gene_q_df, .)%>%
+    dplyr::filter(!!rlang::sym(gene_id_col_name) == main_gene_sel) %>%
+    
+    group_by(!!rlang::sym(tissue_col_name),  
+             !!rlang::sym(gene_id_col_name)) %>%
+    dplyr::mutate(mean_expr = mean(value)) %>%
+    mutate(value = as.numeric(value)) %>%
+    dplyr::arrange(-value) %>% 
+    ungroup %>% 
+    mutate(primary_site = factor(!!rlang::sym(tissue_col_name), 
+                                 levels = unique(!!rlang::sym(tissue_col_name)))) %>%
+    group_by(primary_site, data_source) %>%
+    mutate(n_samples = length(unique(!!rlang::sym(sample_id_col_name) ))) %>%
+    mutate(site_label = paste0(primary_site, " - ", data_source, 
+                               " (n = ", n_samples, ")")) %>%
+    group_by(primary_site, mean_expr) %>%
+    arrange( -mean_expr, primary_site, data_source) %>%
+    ungroup %>%
+    mutate(site_label = factor(site_label, levels = unique(site_label))) %>%
+    mutate(primary_site = factor(primary_site, levels = unique(primary_site))) %>%
+    ungroup %>% 
+    group_by(!!rlang::sym(tissue_col_name),  
+             !!rlang::sym(gene_id_col_name)) %>% 
+    mutate(sources_n = length(unique(data_source))) %>% ungroup
+  
+  p <- ggplot(data = tcga3, aes(x = primary_site, 
+                                y = value, 
+                                fill = data_source))+
+    geom_boxplot(width = 0.5, outlier.size   = 0.2, size = 0.2) +  
+    xlab("") + ylab("log2(TPM + 1)") + 
+    geom_hline(yintercept = log2(11), color = "blue", lty = 2) + 
+    geom_hline(yintercept = log2(1.5), color = "red", lty = 2) + 
+    facet_wrap(gene_id_col_name)+ 
+    theme_bw()+
+    theme(legend.position = "bottom", legend.title = element_blank()) + 
+    scale_fill_manual(values = ggthemes::tableau_color_pal("Tableau 10")(2))+
+    ggpubr::rotate_x_text() +
+    coord_flip()
+  
+  p
+  
+  p1 <- ggplot(data = tcga3 %>%
+                 mutate(facet_row = gene_id_col_name ), 
+               aes(x = primary_site, 
+                                 y = value, 
+                                 fill = data_source))+
+    geom_boxplot(width = 0.5, outlier.size   = 0.2, size = 0.2) +  
+    xlab("") + ylab("log2(TPM + 1)") + 
+    geom_hline(yintercept = log2(11), color = "blue", lty = 2) + 
+    geom_hline(yintercept = log2(1.5), color = "red", lty = 2) + 
+    facet_grid(facet_row~data_source,
+               scales = "free_y") + 
+    ggthemes::theme_clean()+
+    theme(legend.position = "bottom", legend.title = element_blank()) + 
+    scale_fill_manual(values = ggthemes::tableau_color_pal("Tableau 10")(2))+
+    scale_color_manual(values = ggthemes::tableau_color_pal("Tableau 10")(2))+
+    ggpubr::rotate_x_text() +
+    coord_flip()
+  
+  p1
+  
+  tcga_sub <- tcga3 %>% 
+    dplyr::filter(sources_n > 1)
+  
+  p2 <- ggplot(data = tcga_sub, aes(x = primary_site,
+                                    y = value, fill = data_source))+
+    geom_boxplot(width = 0.5, outlier.size   = 0.1, 
+                 size = 0.4) +  
+    xlab("") + ylab("log2(TPM + 1)") + 
+    geom_hline(yintercept = log2(11), color = "blue", lty = 2) + 
+    geom_hline(yintercept = log2(1.5), color = "red", lty = 2) + 
+    facet_wrap(gene_id_col_name, scales = "free_y") + 
+    ggthemes::theme_clean()+
+    theme(legend.position = "bottom", legend.title = element_blank()) + 
+    scale_fill_manual(values = ggthemes::tableau_color_pal("Tableau 10")(2))+
+    scale_color_manual(values = ggthemes::tableau_color_pal("Tableau 10")(2))+
+    ggpubr::rotate_x_text() +
+    coord_flip() 
+  
+  p2
+  
+  l <- list(p = p, p1 = p1, p2 = p2)
+  return(l)
+  
+}
+
+
+
 
