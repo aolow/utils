@@ -1,0 +1,129 @@
+
+library(emo)
+
+cat(
+  sample(
+    x = c(
+      ji_glue("Don't let your dreams be dreams! :rainbow:"),
+      ji_glue("Nothing is impossible! :raised_hands:"),
+      ji_glue("Be brave! :triumph:"),
+      ji_glue("Do the thing! Yeah! :white_check_mark:"),
+      ji_glue("Haters gon' hate! :tipping_hand_woman:"),
+      ji_glue("Crush your enemies! :fist:"),
+      ji_glue("Generic motivational quote! :clap:")
+    ),
+    size = 1
+  )
+)
+
+options(repos = c(CRAN = "https://cran.rstudio.org"))
+
+if (interactive()) {
+  options(width = 120)
+}
+
+options(stringsAsFactors = FALSE)
+options(papersize="a4")
+options(editor="notepad")
+options(pager="internal")
+options(tab.width = 2)
+options(width = 130)
+options(graphics.record=TRUE)
+options(max.print=100)
+options(scipen=10)
+
+q <- function (save="no", ...) {
+  quit(save=save, ...)
+}
+ 
+utils::rc.settings(ipck=TRUE)
+ 
+.First <- function(){
+  if(interactive()){
+    library(utils)
+    timestamp(,prefix=paste("##------ [",getwd(),"] ",sep=""))
+ 
+  }
+}
+ 
+.Last <- function(){
+  if(interactive()){
+    hist_file <- Sys.getenv("R_HISTFILE")
+    if(hist_file=="") hist_file <- "~/.RHistory"
+    savehistory(hist_file)
+  }
+}
+
+sshhh <- function(a.package){
+  suppressWarnings(suppressPackageStartupMessages(
+    library(a.package, character.only=TRUE)))
+}
+
+
+auto.loads <-c("dplyr", "ggplot2")
+
+if(interactive()){
+  invisible(sapply(auto.loads, sshhh))
+}
+
+.env <- new.env()
+
+.env$unrowname <- function(x) {
+  rownames(x) <- NULL
+  x
+}
+.env$unfactor <- function(df){
+  id <- sapply(df, is.factor)
+  df[id] <- lapply(df[id], as.character)
+  df
+}
+
+.env$range01 <- function(x){(x-min(x, na.rm = T))/(max(x, na.rm = T)-min(x, na.rm = T))}
+
+#source("~/Stash/taa_coexprs_msln/code/funs/get_tcga_gtex_query.R")
+
+.env$myPal <- c("#4E79A7", "#A0CBE8", "#F28E2B", "#FFBE7D", "#59A14F", "#8CD17D", "#B6992D", "#F1CE63", "#499894", "#86BCB6", "#E15759", "#FF9D9A", "#79706E", "#BAB0AC", "#D37295", "#FABFD2", "#B07AA1", "#D4A6C8", "#9D7660", "#D7B5A6", "#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", "#FFFF33", "#A65628", "#F781BF", "#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3", "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02", "#A6761D", "#666666")
+
+# improved list of objects
+.ls.objects <- function (pos = 1, pattern, order.by,
+                        decreasing=FALSE, head=FALSE, n=5) {
+    napply <- function(names, fn) sapply(names, function(x)
+                                         fn(get(x, pos = pos)))
+    names <- ls(pos = pos, pattern = pattern)
+    obj.class <- napply(names, function(x) as.character(class(x))[1])
+    obj.mode <- napply(names, mode)
+    obj.type <- ifelse(is.na(obj.class), obj.mode, obj.class)
+    obj.size <- napply(names, object.size)
+    obj.dim <- t(napply(names, function(x)
+                        as.numeric(dim(x))[1:2]))
+    vec <- is.na(obj.dim)[, 1] & (obj.type != "function")
+    obj.dim[vec, 1] <- napply(names, length)[vec]
+    out <- data.frame(obj.type, obj.size, obj.dim)
+    names(out) <- c("Type", "Size", "Rows", "Columns")
+    if (!missing(order.by))
+        out <- out[order(out[[order.by]], decreasing=decreasing), ]
+    if (head)
+        out <- head(out, n)
+    out
+}
+
+# shorthand
+.env$lsos <- function(..., n=10) {
+    .ls.objects(..., order.by="Size", decreasing=TRUE, head=TRUE, n=n)
+}
+
+.env$print_items_l <- function(l){
+  ItemsList <- gplots::venn(l, show.plot = FALSE)
+  for(i in 1:length(attributes(ItemsList)$intersections)){
+    cat("\n")
+    message(names(attributes(ItemsList)$intersections)[i])
+    attributes(ItemsList)$intersections[[i]] %>%  cat(., sep = ", ")
+    cat("\n")
+  }
+}
+
+attach(.env)
+
+cat("\n")
+
+message("n*** Successfully loaded .Rprofile ***n")
