@@ -1,0 +1,249 @@
+# functions for coexpression plots
+
+tag_facet2 <- function(p, open = "(", close = ")", tag_pool = letters, x = -Inf, y = Inf, 
+                       hjust = -0.5, vjust = 1.5, fontface = 2, family = "", ...) {
+  
+  gb <- ggplot_build(p)
+  lay <- gb$layout$layout
+  tags <- cbind(lay, label = paste0(open, tag_pool[lay$PANEL], close), x = x, y = y)
+  p + geom_text(data = tags, aes_string(x = "x", y = "y", label = "label"), ..., hjust = hjust, 
+                vjust = vjust, fontface = fontface, family = family, inherit.aes = FALSE)
+}
+
+
+
+#####
+
+pltCoexprByDataSrc <- function(.data = tcga2,
+                               main_gene_sel = "EPCAM",
+                               gene_q_df =  gene_q_df,
+                               expr_thr_TPM = 10,
+                               tissue_col_name = "primary_site_std",
+                               sample_id_col_name = "sample",
+                               gene_id_col_name ="GeneID"){
+  
+  main_gene_df <- .data %>%
+    dplyr::right_join(gene_q_df, .)%>%
+    dplyr::filter(!!rlang::sym(gene_id_col_name) == main_gene_sel) %>%
+    dplyr::select(!!rlang::sym(tissue_col_name), 
+                  !!rlang::sym(sample_id_col_name), value) %>% 
+    dplyr::rename(!!rlang::sym(main_gene_sel)  := "value") 
+  
+  plt_df <- main_gene_df %>%
+    dplyr::full_join(.data, .)%>%
+    dplyr::right_join(gene_q_df, .)
+  
+  # plot all samples coexpressioncolor by tissue
+  q <- plt_df %>% dplyr::filter(!!rlang::sym(gene_id_col_name) != main_gene_sel) %>%
+    ungroup %>%
+    ggplot(., aes(x = !!rlang::sym(main_gene_sel), 
+                  y = value, 
+                  color = !!rlang::sym(tissue_col_name)) ) + 
+    geom_point()+
+    facet_grid(cols = vars(data_source), 
+               rows = vars(!!rlang::sym(gene_id_col_name))) + 
+    theme_bw() + 
+    scale_color_manual(values = myPal) + 
+    geom_hline(yintercept=log2(expr_thr_TPM + 1), color = "blue", size=0.5, lty = 2)+
+    geom_vline(xintercept=log2(expr_thr_TPM + 1), color = "blue", size=0.5, lty = 2) +
+    geom_hline(yintercept=log2(1.5), color = "red", size=0.2, lty = 2)+
+    geom_vline(xintercept=log2(1.5), color = "red", size=0.2, lty =2) +
+    xlab(paste0(main_gene_sel, "[log2(FPKM + 1)]"))+
+    ylab("[log2(FPKM + 1)]")+
+    theme(legend.position = "bottom", 
+          legend.title = element_blank())
+  
+  plt_df2 <- plt_df %>% dplyr::filter(!!rlang::sym(gene_id_col_name) != main_gene_sel) %>%
+    group_by(data_source, !!rlang::sym(gene_id_col_name)) %>%
+    dplyr::mutate(count_all = length(unique(!!rlang::sym(sample_id_col_name)))) %>%
+    dplyr::mutate(thr = value > log2(expr_thr_TPM + 1) &
+                    !!rlang::sym(main_gene_sel) > log2(expr_thr_TPM +1) ) %>%
+    dplyr::mutate(cnt_above_thr_per_gene = sum(thr, na.rm = T)) %>%
+    dplyr::mutate(pct_above_thr_per_gene = (sum(thr, na.rm = T) / count_all) * 100 )
+  
+  plt_df2[is.na(plt_df2$pct_above_thr_per_gene), "pct_above_thr_per_gene"] <- 0
+  plt_df2[is.na(plt_df2$cnt_above_thr_per_gene), "cnt_above_thr_per_gene"] <- 0
+  tab_pl <-  plt_df2 %>% 
+    dplyr::select(!!rlang::sym(gene_id_col_name), data_source, pct_above_thr_per_gene, cnt_above_thr_per_gene)  %>% 
+    unique %>% arrange(data_source) %>%
+    mutate(tag = paste0(round(pct_above_thr_per_gene, 1), "%\n(", cnt_above_thr_per_gene, ")")) %>%
+    pull(tag) 
+  
+  return(tag_facet2(q,
+                    tag_pool = tab_pl,
+                    open = "", close = "", x = 5))
+}
+
+###
+
+pltCoexprByTissue <- function(.data = tcga2,
+                              gene_q_df = gene_q_df,
+                              main_gene_sel = "EPCAM",
+                              gene_sel = "ERBB2",
+                              expr_thr_TPM = 10,
+                              tissue_col_name = "primary_site_std",
+                              sample_id_col_name = "sample",
+                              gene_id_col_name ="GeneID",
+                              data_source_sel = "TCGA"){
+  
+  main_gene_df <- .data %>%
+    dplyr::right_join(gene_q_df, .)%>%
+    dplyr::filter(!!rlang::sym(gene_id_col_name) == main_gene_sel) %>%
+    dplyr::select(!!rlang::sym(tissue_col_name), 
+                  !!rlang::sym(sample_id_col_name), value) %>% 
+    dplyr::rename(!!rlang::sym(main_gene_sel)  := "value") 
+  
+  plt_df <- main_gene_df %>%
+    dplyr::full_join(.data, .)%>%
+    dplyr::right_join(gene_q_df, .)
+  
+  
+  plt_df3 <- plt_df %>% 
+    ungroup %>%
+    dplyr::filter(!!rlang::sym(gene_id_col_name) == gene_sel) %>%
+    dplyr::filter(data_source == data_source_sel) %>%
+    group_by( !!rlang::sym(tissue_col_name)) %>%
+    dplyr::mutate(count_all = length(unique(!!rlang::sym(sample_id_col_name)))) %>%
+    dplyr::rename("gene_sel_value" := main_gene_sel ) %>%
+    dplyr::mutate(thr = value > log2(expr_thr_TPM + 1) &
+                    gene_sel_value > log2(expr_thr_TPM + 1) ) %>%
+    dplyr::mutate(cnt_above_thr_per_gene = sum(thr, na.rm = T)) %>%
+    dplyr::mutate(pct_above_thr_per_gene = (sum(thr, na.rm = T) / count_all) * 100 )%>%
+    ungroup %>%
+    arrange(-pct_above_thr_per_gene) %>%
+    dplyr::mutate(tissue_col = factor(!!rlang::sym(tissue_col_name),
+                                      levels = unique(!!rlang::sym(tissue_col_name)
+                                      )
+    )
+    ) %>%
+    dplyr::rename( !!rlang::sym(main_gene_sel) := "gene_sel_value")
+  
+  
+  p <- plt_df3 %>%
+    ggplot(., aes(x = !!rlang::sym(main_gene_sel),
+                  y = value, 
+                  color = tissue_col) ) + 
+    geom_point(size = 0.8)+
+    facet_wrap(~tissue_col) + 
+    theme_bw() + 
+    scale_color_manual(values = myPal) + 
+    theme(legend.position = "bottom", legend.title = element_blank(), 
+          legend.key.size = unit(6, "points" ))+
+    guides(color = guide_legend(override.aes = list(size=5))) + 
+    geom_hline(yintercept=log2(expr_thr_TPM + 1), color = "blue", size=0.5, lty = 2)+
+    geom_vline(xintercept=log2(expr_thr_TPM + 1), color = "blue", size=0.5, lty = 2) +
+    ylab(paste0(gene_sel, " [log2(TPM + 1)]"))+
+    xlab(paste0(main_gene_sel, " [log2(TPM + 1)]")) + 
+    ggtitle(paste0(gene_sel, " (", data_source_sel, ")"))
+  
+  plt_df3[is.na(plt_df3$pct_above_thr_per_gene), "pct_above_thr_per_gene"] <- 0
+  plt_df3[is.na(plt_df3$cnt_above_thr_per_gene), "cnt_above_thr_per_gene"] <- 0
+  tab_pl <-  plt_df3 %>% 
+    dplyr::select(!!rlang::sym(gene_id_col_name), tissue_col, 
+                  pct_above_thr_per_gene, cnt_above_thr_per_gene)  %>% unique %>%
+    mutate(tag = paste0(round(pct_above_thr_per_gene, 1), "%\n(", cnt_above_thr_per_gene, ")")) %>%
+    pull(tag) 
+  
+  return(tag_facet2(p,
+                    tag_pool = tab_pl,
+                    open = "", close = "", x = 5)
+  )
+  
+}
+
+
+
+
+
+pltCoexprByTissue_TN <- function(.data = tcga2,
+                                 gene_q_df = gene_q_df,
+                                 main_gene_sel = "EPCAM",
+                                 gene_sel = "MET",
+                                 expr_thr_TPM = 10,
+                                 tissue_col_name = "primary_site_std",
+                                 sample_id_col_name = "sample",
+                                 gene_id_col_name ="GeneID"){
+  
+  main_gene_df <- .data %>%
+    dplyr::right_join(gene_q_df, .)%>%
+    dplyr::filter(!!rlang::sym(gene_id_col_name) == main_gene_sel) %>%
+    dplyr::select(!!rlang::sym(tissue_col_name), 
+                  !!rlang::sym(sample_id_col_name), value, data_source) %>% 
+    dplyr::rename(!!rlang::sym(main_gene_sel)  := "value") 
+  
+  
+  keep_tissues <- main_gene_df %>% group_by(!!rlang::sym(tissue_col_name), data_source) %>%
+    summarize(count_samples = length(unique( !!rlang::sym(sample_id_col_name)))) %>%
+    tidyr::spread(data_source, count_samples, fill = 0) %>%
+    dplyr::filter(GTEX != 0) %>%
+    dplyr::filter(TCGA != 0) %>% pull(!!rlang::sym(tissue_col_name))
+  
+  
+  plt_df <- main_gene_df %>%
+    mutate(!!rlang::sym(tissue_col_name) := as.character(!!rlang::sym(tissue_col_name))) %>%
+    dplyr::full_join(.data, .)%>%
+    dplyr::right_join(gene_q_df, .) %>%
+    dplyr::filter(!!rlang::sym(tissue_col_name) %in% keep_tissues) 
+  
+  
+  plt_df3 <- plt_df %>% 
+    ungroup %>%
+    dplyr::filter(!!rlang::sym(gene_id_col_name) == gene_sel) %>%
+    #dplyr::filter(data_source == data_source_sel) %>%
+    group_by( !!rlang::sym(tissue_col_name), data_source) %>%
+    dplyr::mutate(count_all = length(unique(!!rlang::sym(sample_id_col_name)))) %>%
+    dplyr::rename("gene_sel_value" := main_gene_sel ) %>%
+    dplyr::mutate(thr = value > log2(expr_thr_TPM + 1) &
+                    gene_sel_value > log2(expr_thr_TPM + 1) ) %>%
+    dplyr::mutate(cnt_above_thr_per_gene = sum(thr, na.rm = T)) %>%
+    dplyr::mutate(pct_above_thr_per_gene = (sum(thr, na.rm = T) / count_all) * 100 )%>%
+    ungroup %>%
+    arrange(-pct_above_thr_per_gene) %>%
+    dplyr::mutate(tissue_col = factor(!!rlang::sym(tissue_col_name),
+                                      levels = unique(!!rlang::sym(tissue_col_name)
+                                      )
+    )
+    ) %>%
+    dplyr::rename( !!rlang::sym(main_gene_sel) := "gene_sel_value")
+  
+  
+  p <-   ggplot() +
+    geom_point(data = plt_df3 %>% dplyr::filter(data_source == "TCGA"), aes(x = !!rlang::sym(main_gene_sel),
+                                                                            y = value), size = 0.5, 
+               color = "red", alpha = 0.3)+
+    geom_point(data = plt_df3 %>% dplyr::filter(data_source == "GTEX"), aes(x = !!rlang::sym(main_gene_sel),
+                                                                            y = value), size = 0.5, 
+               color = "blue", alpha = 0.3)+
+    facet_wrap(~tissue_col) + 
+    theme_bw() + 
+    scale_color_manual(values = myPal) + 
+    theme(legend.position = "bottom", legend.title = element_blank(), 
+          legend.key.size = unit(6, "points" ))+
+    guides(color = guide_legend(override.aes = list(size=5))) + 
+    geom_hline(yintercept=log2(expr_thr_TPM + 1), color = "blue", size=0.5, lty = 2)+
+    geom_vline(xintercept=log2(expr_thr_TPM + 1), color = "blue", size=0.5, lty = 2) +
+    ylab(paste0(gene_sel, " [log2(TPM + 1)]"))+
+    xlab(paste0(main_gene_sel, " [log2(TPM + 1)]")) + 
+    ggtitle(paste0(gene_sel))
+  
+  
+  plt_df3[is.na(plt_df3$pct_above_thr_per_gene), "pct_above_thr_per_gene"] <- 0
+  plt_df3[is.na(plt_df3$cnt_above_thr_per_gene), "cnt_above_thr_per_gene"] <- 0
+  
+  tab_pl <-  plt_df3 %>%
+    dplyr::filter(data_source == "TCGA") %>%
+    dplyr::select(!!rlang::sym(gene_id_col_name), tissue_col, data_source, 
+                  pct_above_thr_per_gene, cnt_above_thr_per_gene)  %>% unique %>%
+    mutate(tag = paste0(round(pct_above_thr_per_gene, 1), "%\n(", cnt_above_thr_per_gene, ")")) %>%
+    pull(tag) 
+  
+  return(
+    tag_facet2(p,
+               tag_pool = tab_pl,
+               open = "", close = "", x = 5)
+  )
+}
+
+
+
+
