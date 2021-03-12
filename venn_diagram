@@ -1,0 +1,26 @@
+
+l <- list(l1 = LETTERS[sample(1:24, 10)], 
+          l2 = LETTERS[sample(1:24, 10)], 
+          l3 = LETTERS[sample(1:24, 10)],
+          l4 = LETTERS[sample(1:24, 10)])
+pal <- wesanderson::wes_palette("Darjeeling1",length(l) ) %>% as.character
+alpha_pal <- alpha(pal, 0.7)
+
+
+plot <- VennDiagram::venn.diagram(
+  x = l,
+  main = "",
+  #sub = "",
+  category.names =  names(l),
+  filename = NULL,
+  cex = 1.2,
+  col=pal,
+  fill = alpha_pal,
+  fontfamily = "sans",
+  cat.cex = 1,
+  cat.default.pos = "outer",
+  cat.fontfamily = "sans"
+)
+dev.off()
+
+grid::grid.draw(plot)
