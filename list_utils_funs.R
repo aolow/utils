@@ -7,3 +7,11 @@ print_items_l <- function(l){
     cat("\n")
   }
 }
+
+printIntersectingItems_l_2ints <- function(l){
+  ItemsList <- gplots::venn(l, show.plot = FALSE)
+  idx_intersecting <- which(lapply(strsplit(names(attributes(ItemsList)$intersections), ":"), length)> 1)
+  intersecting_genes <- attributes(ItemsList)$intersections[idx_intersecting] %>% unlist %>% unique
+  intersecting_genes %>% sort %>% cat(., sep = ", ") 
+  
+}
