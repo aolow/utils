@@ -1,0 +1,172 @@
+# functions to subset tcga xena data to genes of interest only
+
+
+getGeneQFf <- function(gene_anno_file = "./tcga/data/gencode.v23.annotation.gene.probemap",
+                       gene_names = c("EPCAM"), 
+                       name_type = c("symbol"), ensembl_trim = F){
+  
+  gene_id_data = data.table::fread(gene_anno_file)
+  
+  if(name_type == "symbol"){
+    genes_df <- gene_id_data %>% dplyr::filter(gene %in% gene_names) 
+  }
+  
+  if(name_type == "ensembl_full"){
+    genes_df <- gene_id_data %>% dplyr::filter(id %in% gene_names) 
+  }
+  
+  if(name_type == "ensembl_s"){
+    gene_id_data$id_s <- sapply(strsplit(gene_id_data$id, "[.]"), "[", 1)
+    if(ensembl_trim == T){
+      gene_names_s <- sapply(strsplit(gene_names, "[.]"), "[", 1)
+      genes_df <- gene_id_data %>% dplyr::filter(id_s %in% gene_names_s) 
+    }else{
+      genes_df <- gene_id_data %>% dplyr::filter(id_s %in% gene_names) 
+    }
+  }
+
+  gene_q_df <- data.frame(GeneID = genes_df$gene, ID = genes_df$id)
+  
+  return(gene_q_df)
+}
+
+
+
+###
+getTcgaGtexGeneQuery <- function(tcga_file = "./tcga/data/TcgaTargetGtex_rsem_gene_tpm",
+                                 
+                                 gene_anno_file = "./tcga/data/gencode.v23.annotation.gene.probemap",
+                                 commands_dir =  "./tcga/data/commands/",
+                                 all_genes_path =  "./tcga/TcgaTargetGtex_rsem_gene_tpm_gene_names.rds",
+                                 gene_q_df = getGeneQFf(),
+                                 gz_flag = FALSE) {
+  
+  all_genes <-  readRDS(all_genes_path)
+  gene_id_data = data.table::fread(gene_anno_file)
+ 
+  if(gz_flag){
+    tcga_sample <- as.data.frame(data.table::fread(cmd = paste0("gzip -dc ", tcga_file), nrows = 3))
+  }else{
+    tcga_sample <- as.data.frame(data.table::fread(tcga_file, nrows = 3))
+  }
+  #checking
+  gene_map <- gene_id_data %>%dplyr::filter( gene %in% gene_q_df$GeneID) %>% pull("id")
+  
+  # write command file to query genes/transcripts of interest
+  #row_idx <- grep( paste(gene_map, collapse = "|"), all_genes$sample)
+  row_idx <- which(  all_genes$sample %in% gene_map)
+  filename <- paste0(commands_dir,  as.character(Sys.Date()), "_gene_command.sed")
+  writeLines(paste0(c(1, 1+row_idx), "p"), filename)
+  
+
+  if(gz_flag){
+    # if tcga_file is gz
+    gene_query <- data.table::fread(cmd = paste0( "gzip -dc ", tcga_file,  " | sed -n -f ", filename))
+  }else{
+    gene_query <- data.table::fread(cmd = paste0("sed -n -f ", filename, " ", tcga_file))
+  }
+  
+  # subsetting to GTEX.TCGA only
+  col_idx <- c(1, grep("TCGA|GTEX", colnames(tcga_sample)))
+  gene_query <- gene_query[, ..col_idx]
+  gene_query <- as.data.frame(gene_query)
+  
+  return(gene_query)
+  
+}
+
+formatTcgaGtexXenaQuery <- function(gene_query,
+                                meta_file = "./tcga/data/TcgaTargetGTEX_phenotype.txt",
+                                selected_sample_types = c( "Primary Tumor", #TCGA
+                                                           "Normal Tissue", #GTEX
+                                                           "Solid Tissue Normal", #TCGA NAT
+                                                           "Additional - New Primary",
+                                                           "Metastatic", 
+                                                           "Recurrent Tumor",
+                                                           "Additional - New Primary",
+                                                           "Additional Metastatic",
+                                                           "Primary Blood Derived Cancer - Peripheral Blood")){
+  #reshape df
+  gene_query_m <- reshape2::melt(gene_query)
+  names(gene_query_m) <- c("ID", "sample", "value")
+  
+  # combine with phenotype info to select sample types
+  meta <- as.data.frame(data.table::fread(meta_file)) 
+  tcga_m <- dplyr::left_join(gene_query_m, meta)
+  
+  # rescale to log2(tpm + 1)
+  tcga_m$value <- as.numeric(tcga_m$value)
+  tcga_m$value <- ((2^tcga_m$value) - 0.001)
+  tcga_m$value <- log2(tcga_m$value + 1)
+  
+  #tcga_m <- readRDS("data/tcga_gtex_efflux_pumps_trop2.rds")
+  
+  # formatting meta
+  tcga_m$data_source <- sapply(strsplit(as.character(tcga_m$sample), "-"), "[", 1) 
+  # table(tcga_m$`_sample_type`, tcga_m$data_source)
+  # table(tcga_m$`_primary_site`, tcga_m$data_source)
+  
+  # primary site cleanup
+  tcga_m$`_primary_site` <- ifelse(tcga_m$`_primary_site` == "White blood cell", "Blood", tcga_m$`_primary_site`)
+  tcga_m$`_primary_site` <- ifelse(tcga_m$`_primary_site` == "Thyroid Gland", "Thyroid", tcga_m$`_primary_site`)
+  tcga_m$`_primary_site` <- ifelse(tcga_m$`_primary_site` == "Adrenal gland", "Adrenal Gland", tcga_m$`_primary_site`)
+  tcga_m$`_primary_site` <- ifelse(tcga_m$`_primary_site` == "Cervix Uteri", "Cervix", tcga_m$`_primary_site`)
+  
+  # visualizations
+  
+  tcga2 <- tcga_m %>% dplyr::filter(`_sample_type` %in% selected_sample_types)%>% 
+    dplyr::filter(`_primary_site` != "") %>%
+    dplyr::rename("primary_site" = "_primary_site")
+  
+  tcga2$primary_site_std  <- tolower(tcga2$primary_site )
+  tcga2$primary_site_std <- gsub("brain", "central nervous system", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("autonomic ganglia", "ganglia", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("paraganglia", "ganglia", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("bone$", "soft tissue, muscle, bone", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("soft tissue$", "soft tissue, muscle, bone", tcga2$primary_site_std)
+  tcga2$primary_site_std <- gsub("lymphatic tissue", "haematopoietic and lymphoid tissue", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("blood vessel", "soft tissue, muscle, bone", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("muscle$", "soft tissue, muscle, bone", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("bile duct", "biliary tract", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("oesophagus", "upper aerodigestive tract", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("esophagus", "upper aerodigestive tract", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("soft tissue,soft tissue, muscle, bone", "soft tissue, muscle, bone", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("endometrium", "uterus", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("colon", "large intestine, colon", tcga2$primary_site_std )
+  tcga2$primary_site_std <- gsub("large intestine$", "large intestine, colon", tcga2$primary_site_std )
+  
+  return(tcga2)
+  
+  
+}
+
+
+tissue_mappings  <- data.frame(CCLE_Tissue = c("Head and Neck region", "SOFT_TISSUE", "Adrenal Gland", "URINARY_TRACT", "HAEMATOPOIETIC_AND_LYMPHOID_TISSUE", "HAEMATOPOIETIC_AND_LYMPHOID_TISSUE", 
+                                               "BONE", "Soft tissue,Bone", "CENTRAL_NERVOUS_SYSTEM", "BREAST", "CERVIX", "LARGE_INTESTINE", "OESOPHAGUS", 
+                                               "OVARY", "Heart", "KIDNEY", "LIVER", "LUNG", "SOFT_TISSUE", 
+                                               "CENTRAL_NERVOUS_SYSTEM", "OVARY", "PANCREAS", "Pituitary", "PROSTATE", "Salivary Gland", 
+                                               "SKIN", "Small Intestine", "Spleen", "STOMACH", "Testis", "THYROID", 
+                                               "ENDOMETRIUM", "Vagina"),
+                               TCGA_Tissue = c("Head and Neck region", "Adipose Tissue", "Adrenal Gland", "Bladder", "Blood", "Blood Vessel", 
+                                               "Bone Marrow", "Soft tissue,Bone",
+                                               "Brain", "Breast", "Cervix Uteri", "Colon", "Esophagus", 
+                                               "Fallopian Tube", "Heart", "Kidney", "Liver", "Lung", "Muscle", 
+                                               "Nerve", "Ovary", "Pancreas", "Pituitary", "Prostate", "Salivary Gland", 
+                                               "Skin", "Small Intestine", "Spleen", "Stomach", "Testis", "Thyroid", 
+                                               "Uterus", "Vagina"),
+                               GTEX_Tissue = c("Head and Neck region", "Adipose Tissue", "Adrenal Gland", "Bladder", "Blood", "Blood Vessel", 
+                                               "Bone Marrow", "Soft tissue,Bone", 
+                                               "Brain", "Breast", "Cervix Uteri", "Colon", "Esophagus", 
+                                               "Fallopian Tube", "Heart", "Kidney", "Liver", "Lung", "Muscle", 
+                                               "Nerve", "Ovary", "Pancreas", "Pituitary", "Prostate", "Salivary Gland", 
+                                               "Skin", "Small Intestine", "Spleen", "Stomach", "Testis", "Thyroid", 
+                                               "Uterus", "Vagina"),
+                               Tissue = c("Head and Neck region", "Adipose Tissue", "Adrenal Gland", "Bladder", "Blood", "Blood Vessel", 
+                                          "Bone, soft tissue",  "Soft tissue,Bone",
+                                          "Brain", "Breast", "Cervix Uteri", "Colon", "Esophagus", 
+                                          "Fallopian Tube", "Heart", "Kidney", "Liver", "Lung", "Muscle", 
+                                          "Nerve", "Ovary", "Pancreas", "Pituitary", "Prostate", "Salivary Gland", 
+                                          "Skin", "Small Intestine", "Spleen", "Stomach", "Testis", "Thyroid", 
+                                          "Uterus", "Vagina")
+)
+
