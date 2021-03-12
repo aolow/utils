@@ -1,0 +1,6 @@
+l <- list(l1 = LETTERS[sample(1:24, 10)], 
+          l2 = LETTERS[sample(1:24, 10)], 
+          l3 = LETTERS[sample(1:24, 10)],
+          l4 = LETTERS[sample(1:24, 10)])
+
+UpSetR::upset(UpSetR::fromList(l), nintersects = NA, nsets = length(l), keep.order = T)
