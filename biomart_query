@@ -1,0 +1,67 @@
+### df is a data frame, column "gene_name" contains gene symbol, "gene_id" contains ensembl gene id.
+### "sequencing_primer" is a column with a gene sequence fragment we want to find location of
+
+library(biomaRt)
+
+mart <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+
+seq = getSequence(id = df$gene_name[i], 
+                  type = "hgnc_symbol", 
+                  seqType = "cdna", 
+                  mart = mart)
+
+ensembl_id <- df$gene_id %>% as.character
+
+gb <- getBM(attributes=c("ensembl_gene_id", "hgnc_symbol", "description", "start_position",
+                         "end_position", "strand","chromosome_name"),
+            filters ="ensembl_gene_id", values=ensembl_id, mart=mart)
+
+gb_seq <- getBM(attributes=c("ensembl_gene_id", "external_gene_name", "description",
+                         "coding", "cds_start", "cds_end", "cds_length"),
+            filters ="ensembl_gene_id", values=ensembl_id, mart=mart)
+
+
+
+## scratch space
+#
+#test_str <- Biostrings::complement(Biostrings::RNAString(x = as.character(df[which(df$gene_name == gene_sel), "guide_1"]))) %>% as.character()
+#test_str <- gsub("U", "T", test_str)
+#
+#gene_sel <- "ERBB2"
+#str1 <- Biostrings::DNAString(test_str)
+#str2 <- Biostrings::DNAString(as.character(gb_seq[which(gb_seq$external_gene_name == gene_sel), "coding"])[1]
+#str3 <- Biostrings::DNAString(as.character(df[which(df$gene_name == gene_sel), "sequencing_primer"] ))
+#Biostrings::matchPattern(str1, str2)
+#Biostrings::matchPattern(str1, str3)
+
+library(BSgenome.Hsapiens.UCSC.hg38)
+
+df$genome <- "BSgenome.Hsapiens.UCSC.hg38"
+
+df <- df %>% dplyr::rename("ensembl_gene_id" = "gene_id")
+df <- df  %>% dplyr::left_join(., gb)
+
+Res_df <- structure(list(gene_name = character(0), chr = character(0), 
+                         str_searched = character(0), 
+                         start = integer(0), end = numeric(0), width = integer(0), 
+                         genome = character(0)), row.names = integer(0), class = "data.frame")
+
+for(i in 1:nrow(df)){
+  gene_name <- as.character(df[i, "gene_name"])
+  str1 <- Biostrings::DNAString(as.character(df[i, "sequencing_primer"] ))
+  chr <-  paste0("chr", as.character(df[i, "chromosome_name"]))
+  matched_pattern <- matchPattern(str1, BSgenome.Hsapiens.UCSC.hg38[[chr]] )
+  
+  res_df <- data.frame(gene_name = gene_name,
+                       chr = chr,
+                       str_searched = as.character(str1),
+                       start = matched_pattern@ranges@start,
+                       end = matched_pattern@ranges@start +   matched_pattern@ranges@width - 1,
+                       width = matched_pattern@ranges@width,
+                       genome = "BSgenome.Hsapiens.UCSC.hg38"
+                       )
+  
+  Res_df <- rbind(Res_df, res_df)
+}
+
+df <- left_join(df, Res_df)
